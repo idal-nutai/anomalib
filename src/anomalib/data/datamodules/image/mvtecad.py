@@ -189,6 +189,11 @@ class MVTecAD(AnomalibDataModule):
             root=self.root,
             category=self.category,
         )
+        self.val_data = MVTecADDataset(
+            split=Split.VAL,
+            root=self.root,
+            category=self.category,
+        )
 
     def prepare_data(self) -> None:
         """Download the dataset if not available.

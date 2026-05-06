@@ -183,28 +183,32 @@ def make_mvtec_ad_dataset(
     samples.label_index = samples.label_index.astype(int)
 
     # separate masks from samples
-    mask_samples = samples.loc[samples.split == "ground_truth"].sort_values(
-        by="image_path",
-        ignore_index=True,
-    )
-    samples = samples[samples.split != "ground_truth"].sort_values(
-        by="image_path",
-        ignore_index=True,
-    )
+    mask_samples = samples.loc[samples.split == "ground_truth"]
+    samples = samples[samples.split != "ground_truth"].copy() # Use .copy() to prevent SettingWithCopyWarning
 
-    # assign mask paths to anomalous test images
-    samples["mask_path"] = None
-    samples.loc[
-        (samples.split == "test") & (samples.label_index == LabelName.ABNORMAL),
-        "mask_path",
-    ] = mask_samples.image_path.to_numpy()
+    # Create a dictionary mapping the base name of a mask to its full path
+    # e.g., {"000": ".../ground_truth/.../000_mask.png", "017": ".../ground_truth/.../017.png"}
+    mask_paths = mask_samples.image_path.to_list()
+    mask_map = {Path(p).stem.removesuffix("_mask"): p for p in mask_paths}
+
+    # Initialize mask_path column as empty strings to satisfy task inference later
+    samples["mask_path"] = ""
+
+    # Safely identify anomalous test/val samples (Fixes operator precedence bug)
+    is_anomalous_eval = samples.split.isin(["test", "val"]) & (samples.label_index == LabelName.ABNORMAL)
+    anomalous_samples = samples[is_anomalous_eval]
+
+    # Map the anomalous images to their corresponding masks using the dictionary
+    image_stems = anomalous_samples["image_path"].apply(lambda p: Path(p).stem)
+    mapped_masks = image_stems.map(mask_map).fillna("")
+    samples.loc[is_anomalous_eval, "mask_path"] = mapped_masks.to_numpy()
 
     # assert that the right mask files are associated with the right test images
     abnormal_samples = samples.loc[samples.label_index == LabelName.ABNORMAL]
     if (
         len(abnormal_samples)
         and not abnormal_samples.apply(
-            lambda x: Path(x.image_path).stem in Path(x.mask_path).stem,
+            lambda x: Path(x.image_path).stem in Path(x.mask_path).stem if x.mask_path else False,
             axis=1,
         ).all()
     ):
